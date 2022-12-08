@@ -1,0 +1,102 @@
+---
+title: "Cumulative outcomes with (1) different types of eGFR decline. Tertile with ACR group"
+author: "Rabiul Islam and Daniel Montemayor<br><small>Center for Renal Precision Medicine<br>University of Texas Health San Antonio School of Medicine</small>"
+date: "<small>`r Sys.Date()`</small>"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 3
+    number_sections: true
+    toc_float: 
+      collapsed: false
+    code_folding: hide
+    theme: cerulean
+---
+
+![Center for Renal Precision Medicine](https://dmontemayor.github.io/assets/Long_SOM/horizontal/JPG/UTHSA_Long-SOM_H_CMYK.jpg)
+
+# Brief
++Cumulative outcomes with eGFR decline for normo+micro groups  (for each year)
++ Partion by Adenine Tertiles (Individual cohorts) for  NA+MA groups.
++Count the Cumulative outcomes
+ 
+```{r requirements, message=FALSE, warning=FALSE}
+#Requirements
+requirements <- c("dplyr","reshape","ggplot2","tidyverse","rstatix","ggpubr","readxl")
+
+#CRAN repository
+repos <- "http://cran.us.r-project.org"
+
+#install and load missing requirements
+for (pack in requirements){
+  if( !is.element(pack, .packages(all.available = TRUE)) ) {
+    #install.packages(pack, repos = repos)
+    install.packages(pack)
+  }
+  library(pack, character.only = TRUE)
+}
+```
+
+```{r constants}
+#Constants
+rm(list=ls())
+MWade = 135.13 # molecular weights for adenine in g/mol
+MWcre = 113.12 #molecular weights for creatinine in g/mol
+
+#Random number seed
+set.seed(10079)
+
+```
+
+# Run this chunk if you wnat to see Ade/Creat (nM/mM) with Smart dataset and eGFR decline
+```{r download}
+#get data
+#rawdata <- read.csv("RedCapUp2.csv")#, stringsAsFactors = TRUE)
+setwd("~/Desktop/Project/RabiSmart2DProject")
+data <- read_excel("SMART2DSingapore_KTPH.xlsx")
+```
+
+
+# Adenine preprocess and log2 conversion
+```{r exclusioncriteria}
+#remove patients with no adenine values
+data <- data[!is.na(data$`Ade/Creat (mg/g)`*1000), ]
+
+#rawdata <- rawdata[!is.na(rawdata$Adenine..nM.uM.), ]
+
+impute<-function(x){
+  replace(x, x==0, min(x[x>0], na.rm = TRUE)/2)
+}
+
+#log2 adenine
+Temp<-as.numeric(impute(data$`Ade/Creat (mg/g)`*1000))
+#Temp<-impute(rawdata$Adenine..nM.uM.)
+data$log_adenine2<- log(Temp, base = 2)
+
+#create new raw "patientid" from "Filename"
+data$patientid<-data$Filename
+
+#index of patientid with KTPH
+idx<-which(grepl("KTPH",data$patientid))
+rawdata<-data[idx,]
+#View(rawdata)
+print(paste("Total number of patients for adenine:",dim(rawdata)[1]))
+```
+
+# Display Adenine distribution with  ng/g
+```{r}
+ par(mfrow=c(1,2))
+  hist(data$`Ade/Creat (mg/g)`)
+  hist(rawdata$log_adenine2)
+```
+
+# Standardization of urine adenine-creatinine ratio
+```{r}
+rawdata$zlog_adenine2 =scale (rawdata$log_adenine2)
+hist(rawdata$zlog_adenine2)
+```
+```{r}
+datall <- read_excel("Urine Adenine_CRIC replica N_309__march 2022.xlsx")
+names(datall)
+```
+

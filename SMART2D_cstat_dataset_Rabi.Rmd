@@ -1,0 +1,254 @@
+---
+title: "Smart2d dataset cstat. Tertile with ACR group"
+author: "Daniel Montemayor and Rabiul Islam<br><small>Center for Renal Precision Medicine<br>University of Texas Health San Antonio School of Medicine</small>"
+date: "<small>`r Sys.Date()`</small>"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 3
+    number_sections: true
+    toc_float: 
+      collapsed: false
+    code_folding: hide
+    theme: cerulean
+---
+
+![Center for Renal Precision Medicine](https://dmontemayor.github.io/assets/Long_SOM/horizontal/JPG/UTHSA_Long-SOM_H_CMYK.jpg)
+
+# Brief
++Count number of patients, cut-off point, cut-off Range (in nm/mM and ng/mg) from each ACR group with tertiles
+
+```{r requirements, message=FALSE, warning=FALSE}
+#Requirements
+requirements <- c("dplyr", "epiDisplay","tidyverse","readxl")
+
+#CRAN repository
+repos <- "http://cran.us.r-project.org"
+
+#install and load missing requirements
+for (pack in requirements){
+  if( !is.element(pack, .packages(all.available = TRUE)) ) {
+    #install.packages(pack, repos = repos)
+    install.packages(pack)
+  }
+  library(pack, character.only = TRUE)
+}
+```
+
+```{r constants}
+#Constants
+rm(list=ls())
+MWade = 135.13 # molecular weights for adenine in g/mol
+MWcre = 113.12 #molecular weights for creatinine in g/mol
+
+#Random number seed
+set.seed(10079)
+
+```
+
+# Ade/Creat (nM/mM) with Smart dataset
+```{r download}
+#get data
+#rawdata <- read.csv("RedCapUp2.csv")#, stringsAsFactors = TRUE)
+#setwd("~/Desktop/Project/RabiSmart2DProject")
+#data <- read.csv("~/Desktop/Project/RabiSmart2DProject/SMART2DSingapore_KTPH.csv", stringsAsFactors = TRUE)
+#setwd("~/Desktop/Project/Rabi Smart2D Project")
+Adendata <- read_excel("~/Desktop/Project/RabiSmart2DProject/SMART2DSingapore_KTPH.xlsx")
+names(Adendata)<-c("SampleID","Creatinine (uM)","Creatinine (mM)","Adenine (uM)","Adenine (nM)"    ,  "Ade/Creat (nM/mM)","Ade/Creat (mg/g)")
+#remove patients with no adenine values
+#Adendata <- data[!is.na(data$`Ade/Creat (nM/mM)`), ]
+```
+
+# Load Smart2d dataset with clinical variable
+```{r}
+rawdata<-read_excel("~/Desktop/Project/RabiSmart2DProject/SMART2D.xlsx")
+```
+
+# Marge adenine data and clinical variable dataset based on patients id
+```{r}
+rawdata<-merge(rawdata,Adendata,by="SampleID")
+```
+
+
+# Adenine preprocess and log2 conversion
+```{r exclusioncriteria}
+#remove patients with no adenine values
+#data <- data[!is.na(data$`Ade/Creat (mg/g)`*1000), ]
+rawdata <- rawdata[!is.na(rawdata$`Ade/Creat (nM/mM)`), ]
+
+#rawdata <- rawdata[!is.na(rawdata$Adenine..nM.uM.), ]
+
+impute<-function(x){
+  replace(x, x==0, min(x[x>0], na.rm = TRUE)/2)
+}
+
+#log2 adenine
+Temp<-impute(rawdata$`Ade/Creat (nM/mM)`)
+
+###########nm/mM units
+rawdata$log_adenine2unit1<- log(Temp, base = 2)
+
+###########Convert unit to ng/mg
+rawdata$log_adenine2unit2<-log((Temp*(135.13/113.12)), base=2)
+
+
+###########Convert unit to ng/g
+rawdata$log_adenine2unit3<-log(((Temp*(135.13/113.12)*1000)), base=2)
+
+
+```
+
+# ACR group and Tertile
+```{r}
+rawdata = rawdata %>%
+  mutate(acr_group = ifelse(is.na(ACR_category), NA, 'unknown'),
+         acr_group = ifelse(ACR_category == 1, 'normo', acr_group),
+         acr_group = ifelse(ACR_category == 2, 'micro', acr_group),
+         acr_group = as.factor(acr_group),
+         adenine_tertile = ifelse(is.na(adenine_tertile_CRIC), NA, 'unknown'),
+         adenine_tertile = ifelse(adenine_tertile_CRIC == 1, 'Q1', adenine_tertile),
+         adenine_tertile = ifelse(adenine_tertile_CRIC == 2, 'Q2', adenine_tertile),
+         adenine_tertile = ifelse(adenine_tertile_CRIC == 3, 'Q3', adenine_tertile),
+         sex2 = ifelse(sex == 1, 'Male', 'Female'),
+         acr_sex_group = paste(acr_group, sex2, sep = '_'))
+
+
+print(paste("number of patients with normo-albuminuria = ", sum((rawdata$acr_group=="normo"), na.rm = TRUE)))
+print(paste("number of patients with micro-albuminuria = ", sum((rawdata$acr_group=="micro"), na.rm = TRUE)))
+```
+
+# Normal group tertiles
+```{r}
+#Initialize variable
+#make a dataframe to hold event count
+df <- data.frame(matrix(nrow=2, ncol = 10))
+colnames(df) <- c("unit","ACRgroup","T1","T2","T3","C1","C2","T1(cutRng)","T2(cutRng)","T3(cutRng)")
+#select normal group patients 
+idx<-which((rawdata$acr_group=="normo"))
+#keep normal data
+normalpatients<-rawdata[idx,]
+
+unit<-c("nm/mM","ng/mg","ng/g")
+#select adenine units
+adenine <- names(normalpatients)[grep("log_adenine2unit", names(normalpatients))]
+#Loop over adenine
+for (i in 1:3){
+  quants<-quantile(normalpatients[adenine[i]], na.rm=T, probs = seq(0,1, by=1/3))
+  
+  T1patsnorm <- normalpatients[adenine[i]] >= quants[1] & normalpatients[adenine[i]] < quants[2]
+  T2patsnorm <- normalpatients[adenine[i]] >= quants[2] & normalpatients[adenine[i]] < quants[3]
+  T3patsnorm <- normalpatients[adenine[i]] >= quants[3]
+  print(paste("Total number of patients on Normal group", sum(!is.na(normalpatients[adenine[i]]))))
+  
+  print(paste("number of patients in T1 ", sum(T1patsnorm, na.rm = TRUE)))
+  print(paste("number of patients in T2 ", sum(T2patsnorm, na.rm = TRUE)))
+  print(paste("number of patients in T3 ", sum(T3patsnorm, na.rm = TRUE)))
+  
+  print(paste("tertile cutoffs in unit for normal group= ", paste(unit[i],":"), paste(quants, collapse=", ")))
+  
+  #########################Book keeping#################
+  df[i,1]<-unit[i]
+  df[i,2]<-sum(!is.na(normalpatients[adenine[i]]))
+  df[i,3]<-sum(T1patsnorm, na.rm = TRUE)
+  df[i,4]<-sum(T2patsnorm, na.rm = TRUE)
+  df[i,5]<-sum(T3patsnorm, na.rm = TRUE)
+  df[i,6]<-as.matrix(quants[2])[1]
+  df[i,7]<-as.matrix(quants[3])[1]
+  df[i,8]<-paste("[",as.matrix(quants[1])[1],as.matrix(quants[2])[1], sep = " ", "]")
+  df[i,9]<-paste("[",as.matrix(quants[2])[1],as.matrix(quants[3])[1], sep = " ", "]")
+  df[i,10]<-paste("[",as.matrix(quants[3])[1],as.matrix(quants[4])[1], sep = " ", "]")
+}
+print(df)
+```
+
+
+# Micro group tertiles
+```{r}
+#Initialize variable
+#make a dataframe to hold event count
+df <- data.frame(matrix(nrow=2, ncol = 10))
+colnames(df) <- c("unit","ACRgroup","T1","T2","T3","C1","C2","T1(cutRng)","T2(cutRng)","T3(cutRng)")
+#select normal group patients 
+idx<-which((rawdata$acr_group=="micro"))
+#keep normal data
+micropatients<-rawdata[idx,]
+
+unit<-c("nm/mM","ng/mg","ng/g")
+#select adenine units
+adenine <- names(micropatients)[grep("log_adenine2unit", names(micropatients))]
+#Loop over adenine
+for (i in 1:3){
+  quants<-quantile(micropatients[adenine[i]], na.rm=T, probs = seq(0,1, by=1/3))
+  
+  T1patsnorm <- micropatients[adenine[i]] >= quants[1] & micropatients[adenine[i]] < quants[2]
+  T2patsnorm <- micropatients[adenine[i]] >= quants[2] & micropatients[adenine[i]] < quants[3]
+  T3patsnorm <- micropatients[adenine[i]] >= quants[3]
+  print(paste("Total number of patients on Normal group", sum(!is.na(micropatients[adenine[i]]))))
+  
+  print(paste("number of patients in T1 ", sum(T1patsnorm, na.rm = TRUE)))
+  print(paste("number of patients in T2 ", sum(T2patsnorm, na.rm = TRUE)))
+  print(paste("number of patients in T3 ", sum(T3patsnorm, na.rm = TRUE)))
+  
+  print(paste("tertile cutoffs in unit for normal group= ", paste(unit[i],":"), paste(quants, collapse=", ")))
+  
+  #########################Book keeping#################
+  df[i,1]<-unit[i]
+  df[i,2]<-sum(!is.na(micropatients[adenine[i]]))
+  df[i,3]<-sum(T1patsnorm, na.rm = TRUE)
+  df[i,4]<-sum(T2patsnorm, na.rm = TRUE)
+  df[i,5]<-sum(T3patsnorm, na.rm = TRUE)
+  df[i,6]<-as.matrix(quants[2])[1]
+  df[i,7]<-as.matrix(quants[3])[1]
+  df[i,8]<-paste("[",as.matrix(quants[1])[1],as.matrix(quants[2])[1], sep = " ", "]")
+  df[i,9]<-paste("[",as.matrix(quants[2])[1],as.matrix(quants[3])[1], sep = " ", "]")
+  df[i,10]<-paste("[",as.matrix(quants[3])[1],as.matrix(quants[4])[1], sep = " ", "]")
+}
+print(df)
+```
+
+
+# Norma+Micro group tertiles
+```{r}
+#Initialize variable
+#make a dataframe to hold event count
+df <- data.frame(matrix(nrow=2, ncol = 10))
+colnames(df) <- c("unit","ACRgroup","T1","T2","T3","C1","C2","T1(cutRng)","T2(cutRng)","T3(cutRng)")
+#select normal group patients 
+idx<-which((rawdata$acr_group=="micro") | (rawdata$acr_group=="normo"))
+#keep normal data
+NMpatients<-rawdata[idx,]
+
+unit<-c("nm/mM","ng/mg","ng/g")
+#select adenine units
+adenine <- names(NMpatients)[grep("log_adenine2unit", names(NMpatients))]
+#Loop over adenine
+for (i in 1:3){
+  quants<-quantile(NMpatients[adenine[i]], na.rm=T, probs = seq(0,1, by=1/3))
+  
+  T1patsnorm <- NMpatients[adenine[i]] >= quants[1] & NMpatients[adenine[i]] < quants[2]
+  T2patsnorm <- NMpatients[adenine[i]] >= quants[2] & NMpatients[adenine[i]] < quants[3]
+  T3patsnorm <- NMpatients[adenine[i]] >= quants[3]
+  print(paste("Total number of patients on Normal group", sum(!is.na(NMpatients[adenine[i]]))))
+  
+  print(paste("number of patients in T1 ", sum(T1patsnorm, na.rm = TRUE)))
+  print(paste("number of patients in T2 ", sum(T2patsnorm, na.rm = TRUE)))
+  print(paste("number of patients in T3 ", sum(T3patsnorm, na.rm = TRUE)))
+  
+  print(paste("tertile cutoffs in unit for normal group= ", paste(unit[i],":"), paste(quants, collapse=", ")))
+  
+  #########################Book keeping#################
+  df[i,1]<-unit[i]
+  df[i,2]<-sum(!is.na(NMpatients[adenine[i]]))
+  df[i,3]<-sum(T1patsnorm, na.rm = TRUE)
+  df[i,4]<-sum(T2patsnorm, na.rm = TRUE)
+  df[i,5]<-sum(T3patsnorm, na.rm = TRUE)
+  df[i,6]<-as.matrix(quants[2])[1]
+  df[i,7]<-as.matrix(quants[3])[1]
+  df[i,8]<-paste("[",as.matrix(quants[1])[1],as.matrix(quants[2])[1], sep = " ", "]")
+  df[i,9]<-paste("[",as.matrix(quants[2])[1],as.matrix(quants[3])[1], sep = " ", "]")
+  df[i,10]<-paste("[",as.matrix(quants[3])[1],as.matrix(quants[4])[1], sep = " ", "]")
+}
+print(df)
+```
+
+

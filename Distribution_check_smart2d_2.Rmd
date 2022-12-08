@@ -1,0 +1,127 @@
+---
+title: "nm/mM was converted to ng/mg. Review the CRIC data to see how the distribution. Tertiles with cut-off point for all samples or each albuminuria cohort"
+author: "Daniel Montemayor and Rabiul Islam<br><small>Center for Renal Precision Medicine<br>University of Texas Health San Antonio School of Medicine</small>"
+date: "<small>`r Sys.Date()`</small>"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 3
+    number_sections: true
+    toc_float: 
+      collapsed: false
+    code_folding: hide
+    theme: cerulean
+---
+
+![Center for Renal Precision Medicine](https://dmontemayor.github.io/assets/Long_SOM/horizontal/JPG/UTHSA_Long-SOM_H_CMYK.jpg)
+
+# Brief
++ Present the data in  ng/mg and also convert to ng/mg. Review the CRIC data to see how the distribution. Tertiles with cut-off point for all samples or each albuminuria cohort
+
+```{r requirements, message=FALSE, warning=FALSE}
+#Requirements
+requirements <- c("dplyr", "epiDisplay")
+
+#CRAN repository
+repos <- "http://cran.us.r-project.org"
+
+#install and load missing requirements
+for (pack in requirements){
+  if( !is.element(pack, .packages(all.available = TRUE)) ) {
+    #install.packages(pack, repos = repos)
+    install.packages(pack)
+  }
+  library(pack, character.only = TRUE)
+}
+```
+
+```{r constants}
+#Constants
+rm(list=ls())
+MWade = 135.13 # molecular weights for adenine in g/mol
+MWcre = 113.12 #molecular weights for creatinine in g/mol
+
+#Random number seed
+set.seed(10079)
+
+```
+
+# Run this chunk if you wnat to see Ade/Creat (mg/g) with Smart dataset and eGFR decline
+```{r download}
+#get data
+#rawdata <- read.csv("RedCapUp2.csv")#, stringsAsFactors = TRUE)
+setwd("~/Desktop/Project/Rabi Smart2D Project")
+data <- read_excel("SMART2DSingapore_KTPH.xlsx")
+```
+
+
+# Adenine preprocess and log2 conversion
+```{r exclusioncriteria}
+#remove patients with no adenine values
+data <- data[!is.na(data$`Ade/Creat (mg/g)`*1000), ]
+
+#rawdata <- rawdata[!is.na(rawdata$Adenine..nM.uM.), ]
+
+impute<-function(x){
+  replace(x, x==0, min(x[x>0], na.rm = TRUE)/2)
+}
+
+#log2 adenine
+Temp<-as.numeric(impute(data$`Ade/Creat (mg/g)`*1000))
+#Temp<-impute(rawdata$Adenine..nM.uM.)
+data$log_adenine2<- log(Temp, base = 2)
+
+#create new raw "patientid" from "Filename"
+data$patientid<-data$Filename
+
+
+#index of patientid with KTPH
+idx<-which(grepl("KTPH",data$patientid))
+rawdata<-data[idx,]
+#View(rawdata)
+
+```
+
+# Display Adenine distribution with  ng/g
+```{r}
+  hist(rawdata$log_adenine2)
+```
+
+## Display Adenine cutoff values between tertiles
+```{r partition}
+#get adenine tertiles cutoff values
+quants <- quantile(rawdata$log_adenine2, c(0,1/3,2/3,1), na.rm = TRUE)
+print(paste("Tertile with cutoff point for all samples in (ng/g)= ", paste(quants, collapse=", ")))
+```
+## Display cut-off points
+```{r}
+#make a dataframe to hold event count
+df <- data.frame(matrix(nrow=1, ncol = 3))
+colnames(df) <- c("Cohort", "C1", "C2")
+df[1]<-"Full"
+df[2]<-as.matrix(quants[2])[1]
+df[3]<-as.matrix(quants[3])[1]
+print(df)
+```
+
+```{r partition with tertile}
+T1pats <- rawdata$log_adenine2 >= quants[1] & rawdata$log_adenine2 < quants[2]
+T2pats <- rawdata$log_adenine2 >= quants[2] & rawdata$log_adenine2 < quants[3]
+T3pats <- rawdata$log_adenine2 >= quants[3]
+print(paste("Total number of patients ", sum(!is.na(rawdata$log_adenine2))))
+
+print(paste("number of patients in T1 ", sum(T1pats, na.rm = TRUE)))
+print(paste("number of patients in T2 ", sum(T2pats, na.rm = TRUE)))
+print(paste("number of patients in T3 ", sum(T3pats, na.rm = TRUE)))
+```
+## Histogram for Tertiles with cut-off points for all samples
+```{r}
+T1patients<-rawdata$log_adenine2[which(T1pats)]
+T2patients<-rawdata$log_adenine2[which(T2pats)]
+T3patients<-rawdata$log_adenine2[which(T3pats)]
+par(mfrow=c(1,4))
+hist(rawdata$log_adenine2)
+hist(T1patients)
+hist(T2patients)
+hist(T3patients)
+```
